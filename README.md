@@ -6,6 +6,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Powered by EvoClaw](https://img.shields.io/badge/Powered%20by-EvoClaw-blue)](https://github.com/clawinfra/evoclaw)
 
+<p align="center">
+  <img src="assets/shield_agent_hero.png" alt="ShieldAgent — AI-Powered DeFi Security Sentinel" width="600"/>
+</p>
+
 ---
 
 ## What is ShieldAgent?
