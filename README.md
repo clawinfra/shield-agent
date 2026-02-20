@@ -77,13 +77,62 @@ shield-agent report <scan_id>
 | **Access Control Bypass** | Missing `onlyOwner`, `tx.origin` usage | CRITICAL |
 | **Integer Overflow** | Unchecked arithmetic (pre-0.8.0) | MEDIUM |
 
+## On-Chain Audit Attestation
+
+Every ShieldAgent scan can be attested on ClawChain via `pallet-agent-receipts`:
+
+1. **Scan completes** → `ScanResult` produced with vulnerabilities, risk score, timestamp
+2. **SHA-256 hash** computed from `(address, risk_score, vuln_count, timestamp)`
+3. **`submit_receipt()`** called on ClawChain testnet → immutable on-chain proof
+4. **Verifiable record**: "ShieldAgent scanned contract X at time T and found Y"
+
+```bash
+# Run demo scan with ClawChain attestation
+python -m shield_agent.poc_scan --demo --attest
+
+# Output includes:
+# [ClawChain] Attesting scan: 0xDEMO_REE...
+# [ClawChain] Input hash:  0x53950a5fa393baa0...
+# [ClawChain] Output hash: 0x34e1db26095148a6...
+# [ClawChain] RPC: wss://testnet.clawchain.win
+```
+
+Auditors, insurers, and DAOs can verify any scan result on-chain.
+
+**Status:** Stub mode (hashes computed locally). Full RPC integration pending `substrate-interface` + ClawChain testnet account.
+
+ClawChain explorer: https://testnet.clawchain.win
+
+## Demo Mode
+
+ShieldAgent includes built-in demo contracts with known vulnerabilities for testing:
+
+```bash
+# Scan demo contracts (no network required)
+python -m shield_agent.poc_scan --demo
+
+# Scan real DeFi contracts (dry run — no API calls)
+python -m shield_agent.poc_scan --dry-run
+
+# Full scan with attestation
+python -m shield_agent.poc_scan --demo --attest
+```
+
+## Source Fetching
+
+ShieldAgent uses a multi-provider fallback strategy for source code:
+
+1. **Etherscan API** — works with or without API key (rate-limited without)
+2. **Sourcify** — public verified source repo, no key required
+3. **Graceful failure** — returns `source_available=False` if both fail
+
 ## Roadmap
 
 | Version | Milestone | Status |
 |---------|-----------|--------|
-| **v0.1** | PoC scanner — static analysis + pattern matching | 🚧 In Progress |
+| **v0.1** | PoC scanner — static analysis + pattern matching + multi-source fetching | ✅ Done |
 | **v0.2** | Live monitoring — continuous on-chain watching | ⏳ Planned |
-| **v0.3** | ClawChain attestation — on-chain audit receipts | ⏳ Planned |
+| **v0.3** | ClawChain attestation — on-chain audit receipts (stub wired) | 🚧 In Progress |
 | **v1.0** | Protection-as-a-Service — managed security for protocols | ⏳ Planned |
 
 ## Built With

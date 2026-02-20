@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 
@@ -21,6 +22,16 @@ VULN_PATTERNS: dict[str, list[tuple[str, str, RiskLevel]]] = {
         (
             r"\.call\{value:",
             "Low-level call with value transfer detected",
+            RiskLevel.MEDIUM,
+        ),
+        (
+            r"msg\.sender\.call",
+            "Direct low-level call to msg.sender",
+            RiskLevel.MEDIUM,
+        ),
+        (
+            r"\.call\.value\(",
+            "Old-style value call (pre-0.7 Solidity)",
             RiskLevel.MEDIUM,
         ),
     ],
@@ -50,8 +61,13 @@ VULN_PATTERNS: dict[str, list[tuple[str, str, RiskLevel]]] = {
             RiskLevel.CRITICAL,
         ),
         (
-            r"selfdestruct|SELFDESTRUCT",
+            r"selfdestruct\(|SELFDESTRUCT",
             "selfdestruct present — verify access controls",
+            RiskLevel.HIGH,
+        ),
+        (
+            r"suicide\(",
+            "Deprecated suicide() call — verify access controls",
             RiskLevel.HIGH,
         ),
         (
@@ -72,6 +88,13 @@ VULN_PATTERNS: dict[str, list[tuple[str, str, RiskLevel]]] = {
             RiskLevel.MEDIUM,
         ),
     ],
+    "unchecked_return": [
+        (
+            r"\.send\(",
+            ".send() return value may be unchecked",
+            RiskLevel.MEDIUM,
+        ),
+    ],
 }
 
 # Severity weights for risk scoring
@@ -82,11 +105,20 @@ SEVERITY_WEIGHTS = {
     RiskLevel.CRITICAL: 50,
 }
 
+# Sourcify public API (no key needed)
+SOURCIFY_CHECK_URL = "https://sourcify.dev/server/check-all-by-addresses"
+SOURCIFY_REPO_URL = "https://repo.sourcify.dev/contracts"
+
 
 class ContractScanner:
     """
     Scans smart contracts for vulnerabilities using static analysis
     and pattern matching against known exploit signatures.
+
+    Source fetching uses a multi-provider fallback strategy:
+    1. Etherscan API (with optional API key)
+    2. Sourcify (no key required)
+    3. Graceful failure with ``source_available=False``
     """
 
     ETHERSCAN_API = "https://api.etherscan.io/api"
@@ -94,12 +126,16 @@ class ContractScanner:
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key or ""
 
-    def fetch_source(self, address: str) -> dict:
-        """Fetch contract source code from Etherscan.
+    # ------------------------------------------------------------------
+    # Source fetching — multi-provider fallback
+    # ------------------------------------------------------------------
 
-        Returns dict with keys: name, source, compiler, abi (all str).
+    def _fetch_etherscan(self, address: str) -> dict | None:
+        """Try Etherscan API (works without key for low-rate usage).
+
+        Returns a source dict on success, ``None`` on failure.
         """
-        params = {
+        params: dict[str, str] = {
             "module": "contract",
             "action": "getsourcecode",
             "address": address,
@@ -113,17 +149,120 @@ class ContractScanner:
             data = resp.json()
 
             if data.get("status") != "1" or not data.get("result"):
-                return {"name": "", "source": "", "compiler": "", "abi": ""}
+                return None
 
             result = data["result"][0]
+            source = result.get("SourceCode", "")
+            if not source:
+                return None
+
             return {
                 "name": result.get("ContractName", ""),
-                "source": result.get("SourceCode", ""),
+                "source": source,
                 "compiler": result.get("CompilerVersion", ""),
                 "abi": result.get("ABI", ""),
             }
         except Exception:
-            return {"name": "", "source": "", "compiler": "", "abi": ""}
+            return None
+
+    def _fetch_sourcify(self, address: str, chain_id: int = 1) -> dict | None:
+        """Try Sourcify verified-source API (no key required).
+
+        Returns a source dict on success, ``None`` on failure.
+        """
+        try:
+            # Step 1: check if the address has a verified source
+            check_resp = requests.get(
+                SOURCIFY_CHECK_URL,
+                params={"addresses": address, "chainIds": str(chain_id)},
+                timeout=15,
+            )
+            check_resp.raise_for_status()
+            check_data = check_resp.json()
+
+            # Sourcify returns a list; look for a match status
+            if not check_data:
+                return None
+
+            # Determine match type (full_match preferred, partial_match OK)
+            match_type: str | None = None
+            addr_lower = address.lower()
+            for item in check_data:
+                if item.get("address", "").lower() == addr_lower:
+                    if item.get("status") == "perfect":
+                        match_type = "full_match"
+                    elif item.get("status") == "partial":
+                        match_type = "partial_match"
+                    break
+
+            if not match_type:
+                return None
+
+            # Step 2: fetch metadata.json to get source file list
+            meta_url = (
+                f"{SOURCIFY_REPO_URL}/{match_type}/{chain_id}/{address}/metadata.json"
+            )
+            meta_resp = requests.get(meta_url, timeout=15)
+            meta_resp.raise_for_status()
+            metadata = meta_resp.json()
+
+            sources_dict = metadata.get("sources", {})
+            combined_source = ""
+            for _path, info in sources_dict.items():
+                content = info.get("content", "")
+                if content:
+                    combined_source += content + "\n"
+
+            if not combined_source:
+                return None
+
+            name = ""
+            output = metadata.get("output", {})
+            # Try to extract contract name from ABI devdoc title
+            devdoc = output.get("devdoc", {})
+            if isinstance(devdoc, dict):
+                name = devdoc.get("title", "")
+
+            compiler = metadata.get("compiler", {}).get("version", "")
+
+            return {
+                "name": name,
+                "source": combined_source.strip(),
+                "compiler": compiler,
+                "abi": "",
+            }
+        except Exception:
+            return None
+
+    def fetch_source(self, address: str) -> dict:
+        """Fetch contract source code with multi-provider fallback.
+
+        Strategy:
+        1. Etherscan API (with or without key)
+        2. Sourcify public repo
+        3. Return empty result
+
+        Returns dict with keys: name, source, compiler, abi (all str).
+        """
+        _empty: dict[str, str] = {
+            "name": "",
+            "source": "",
+            "compiler": "",
+            "abi": "",
+        }
+
+        # Provider 1: Etherscan
+        result = self._fetch_etherscan(address)
+        if result and result.get("source"):
+            return result
+
+        # Provider 2: Sourcify
+        result = self._fetch_sourcify(address)
+        if result and result.get("source"):
+            return result
+
+        # All providers failed
+        return _empty
 
     def analyse_source(self, source: str) -> list[Vulnerability]:
         """Run pattern-matching analysis on Solidity source code."""
