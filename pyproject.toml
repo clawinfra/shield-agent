@@ -3,7 +3,7 @@ name = "shield-agent"
 version = "0.1.0"
 description = "AI-powered DeFi security sentinel"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "web3>=7.0.0",
@@ -24,6 +24,9 @@ dev = [
 [project.scripts]
 shield-agent = "shield_agent.cli:main"
 
+[tool.setuptools.packages.find]
+include = ["shield_agent*"]
+
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
