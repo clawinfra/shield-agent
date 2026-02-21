@@ -42,3 +42,30 @@ class ScanResult:
             return RiskLevel.MEDIUM
         else:
             return RiskLevel.LOW
+
+
+@dataclass
+class PalletScanResult:
+    """Scan result for a single Substrate pallet."""
+
+    pallet_name: str
+    pallet_path: str
+    scan_timestamp: float
+    vulnerabilities: list[Vulnerability]
+    risk_score: int
+    risk_level: RiskLevel
+    files_scanned: int
+    has_benchmarks: bool
+
+
+@dataclass
+class ChainAuditReport:
+    """Aggregated audit report across all pallets in a Substrate runtime."""
+
+    pallets: list[PalletScanResult]
+    total_vulnerabilities: int
+    critical_count: int
+    high_count: int
+    overall_risk: RiskLevel
+    scan_timestamp: float
+    chain_name: str = "ClawChain"
