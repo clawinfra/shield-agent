@@ -1,0 +1,10 @@
+{
+  "name": "shield-agent",
+  "version": "0.1.0",
+  "displayName": "ShieldAgent",
+  "description": "Autonomous smart contract security scanner. AI-powered vulnerability detection (reentrancy, flash loans, access control) with on-chain attestation via ClawChain. Immunefi-style protection, running 24/7.",
+  "author": "AlexChen31337",
+  "tags": ["security", "defi", "smart-contracts", "ethereum", "audit", "autonomous", "clawchain"],
+  "homepage": "https://github.com/clawinfra/shield-agent",
+  "license": "MIT"
+}
